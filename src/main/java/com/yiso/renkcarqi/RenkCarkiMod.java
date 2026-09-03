@@ -22,7 +22,13 @@ public class RenkCarkiMod implements ModInitializer {
     private static final int TICKS_15_MIN = 15 * 60 * 20;
     private static int timer = TICKS_15_MIN;
     private static int spinTicks = 0;
-    private static WheelColor pendingChoice = null;
+    
+    // Çark dönmeye başladığı an hedef rengi sabit tutuyoruz (Uyuşmazlık çözüldü)
+    private static WheelColor targetChoice = null;
+
+    // Sunucuyu kilitlenmekten kurtaran kademeli silme kuyruğu (Queue)
+    private static final Queue<BlockPosTask> removalQueue = new LinkedList<>();
+    private static final int BLOCKS_PER_TICK = 150; // Her tick'te silinecek blok sınırı (Donmayı engeller)
 
     private static final WheelColor[] COLORS = {
             new WheelColor("Kırmızı", "§c"),
@@ -42,19 +48,21 @@ public class RenkCarkiMod implements ModInitializer {
     private static WheelColor banned = null;
     private static final Random RANDOM = new Random();
 
+    private record BlockPosTask(ServerWorld world, BlockPos pos) {}
+
     @Override
     public void onInitialize() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(CommandManager.literal("renkcarki")
                 .executes(context -> {
-                    timer = 0;
+                    startSpin();
                     context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark manuel olarak başlatıldı!"), false);
                     return 1;
                 }));
 
             dispatcher.register(CommandManager.literal("wheel")
                 .executes(context -> {
-                    timer = 0;
+                    startSpin();
                     context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark manuel olarak başlatıldı!"), false);
                     return 1;
                 }));
@@ -64,34 +72,53 @@ public class RenkCarkiMod implements ModInitializer {
 
         ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
             if (banned != null) {
-                removeColorFromChunk(world, chunk, banned);
+                scanChunkForRemoval(world, chunk, banned);
             }
         });
+    }
+
+    private static void startSpin() {
+        if (spinTicks <= 0) {
+            timer = TICKS_15_MIN;
+            targetChoice = COLORS[RANDOM.nextInt(COLORS.length)];
+            spinTicks = 60; // 3 saniye animasyon
+        }
     }
 
     private static void tick(MinecraftServer server) {
         if (server.getPlayerManager().getPlayerList().isEmpty()) return;
 
+        // 1. Kademeli Blok Silme (Sunucunun donmasını ve hasar almama sorununu çözer)
+        int processed = 0;
+        while (!removalQueue.isEmpty() && processed < BLOCKS_PER_TICK) {
+            BlockPosTask task = removalQueue.poll();
+            if (task.world().getBlockState(task.pos()).getBlock() != Blocks.AIR) {
+                task.world().setBlockState(task.pos(), Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+            }
+            processed++;
+        }
+
+        // 2. Çark Dönme Animasyonu
         if (spinTicks > 0) {
             spinTicks--;
-            int index = (spinTicks * 3 + RANDOM.nextInt(3)) % COLORS.length;
-            WheelColor shown = COLORS[index];
+            
+            // Animasyon biterken çark tam olarak hedeflenen renkte durur
+            WheelColor shown = (spinTicks == 0) ? targetChoice : COLORS[RANDOM.nextInt(COLORS.length)];
+            
             for (var player : server.getPlayerManager().getPlayerList()) {
                 player.sendMessage(Text.literal("§6§l[ ÇARK DÖNÜYOR ] §r" + shown.code + shown.name), true);
             }
 
             if (spinTicks == 0) {
-                applyChoice(server, pendingChoice);
-                pendingChoice = null;
+                applyChoice(server, targetChoice);
             }
             return;
         }
 
+        // 3. Otomatik Zamanlayıcı
         timer--;
         if (timer <= 0) {
-            timer = TICKS_15_MIN;
-            pendingChoice = COLORS[RANDOM.nextInt(COLORS.length)];
-            spinTicks = 60;
+            startSpin();
         }
     }
 
@@ -100,12 +127,12 @@ public class RenkCarkiMod implements ModInitializer {
 
         for (ServerWorld world : server.getWorlds()) {
             for (WorldChunk chunk : getLoadedChunks(world)) {
-                removeColorFromChunk(world, chunk, chosen);
+                scanChunkForRemoval(world, chunk, chosen);
             }
         }
 
         Text msg = Text.literal("§6§l[ ÇARK ] §r" + chosen.code + chosen.name
-                + " §7rengi dünyadan silindi!");
+                + " §7rengi dünyadan siliniyor!");
         server.getPlayerManager().broadcast(msg, false);
     }
 
@@ -114,7 +141,7 @@ public class RenkCarkiMod implements ModInitializer {
         for (var player : world.getPlayers()) {
             int pcx = player.getChunkPos().x;
             int pcz = player.getChunkPos().z;
-            int radius = 2; // Yükü aşırı azaltmak için yarıçapı 2 chunk yaptık
+            int radius = 3;
             for (int cx = pcx - radius; cx <= pcx + radius; cx++) {
                 for (int cz = pcz - radius; cz <= pcz + radius; cz++) {
                     WorldChunk c = world.getChunkManager().getWorldChunk(cx, cz);
@@ -125,10 +152,9 @@ public class RenkCarkiMod implements ModInitializer {
         return result;
     }
 
-    private static void removeColorFromChunk(ServerWorld world, WorldChunk chunk, WheelColor color) {
+    private static void scanChunkForRemoval(ServerWorld world, WorldChunk chunk, WheelColor color) {
         int minX = chunk.getPos().getStartX();
         int minZ = chunk.getPos().getStartZ();
-
         int bottom = Math.max(world.getBottomY(), -32);
         int top = Math.min(world.getTopY(), 100);
 
@@ -140,7 +166,7 @@ public class RenkCarkiMod implements ModInitializer {
                     mutablePos.set(x, y, z);
                     BlockState state = world.getBlockState(mutablePos);
                     if (!state.isAir() && isTargetColor(state, color)) {
-                        world.setBlockState(mutablePos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+                        removalQueue.add(new BlockPosTask(world, mutablePos.toImmutable()));
                     }
                 }
             }
