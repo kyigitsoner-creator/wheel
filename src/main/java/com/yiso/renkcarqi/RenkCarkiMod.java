@@ -1,6 +1,7 @@
 package com.yiso.renkcarqi;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.Block;
@@ -9,9 +10,9 @@ import net.minecraft.block.Blocks;
 import net.minecraft.block.MapColor;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.ChunkPos;
 import net.minecraft.world.chunk.WorldChunk;
 
 import java.util.*;
@@ -44,6 +45,23 @@ public class RenkCarkiMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        // /renkcarki ve /wheel komutlarını kaydet
+        CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            dispatcher.register(CommandManager.literal("renkcarki")
+                .executes(context -> {
+                    timer = 0; // Zamanlayıcıyı sıfırlayarak çarkı hemen tetikler
+                    context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark manuel olarak başlatıldı!"), false);
+                    return 1;
+                }));
+
+            dispatcher.register(CommandManager.literal("wheel")
+                .executes(context -> {
+                    timer = 0;
+                    context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark manuel olarak başlatıldı!"), false);
+                    return 1;
+                }));
+        });
+
         // Oyuncu oyuna girdikten sonra sayaç çalışır. Dünya kaydedildiğinde tekrar 15 dk'dan başlar.
         ServerTickEvents.END_SERVER_TICK.register(RenkCarkiMod::tick);
 
@@ -98,9 +116,6 @@ public class RenkCarkiMod implements ModInitializer {
 
     private static List<WorldChunk> getLoadedChunks(ServerWorld world) {
         List<WorldChunk> result = new ArrayList<>();
-        // ServerWorld exposes currently loaded chunks through the chunk manager.
-        // We inspect chunks around online players instead of walking the whole world's chunk map,
-        // keeping the 15-minute event lightweight.
         for (var player : world.getPlayers()) {
             int pcx = player.getChunkPos().x;
             int pcz = player.getChunkPos().z;
@@ -129,7 +144,6 @@ public class RenkCarkiMod implements ModInitializer {
                 for (int y = bottom; y < top; y++) {
                     BlockState state = world.getBlockState(new net.minecraft.util.math.BlockPos(x, y, z));
                     if (isTargetColor(state, color)) {
-                        // AIR'e çevirmek item drop oluşturmaz; envanterdeki itemlere dokunulmaz.
                         world.setBlockState(new net.minecraft.util.math.BlockPos(x, y, z), Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
                     }
                 }
@@ -141,7 +155,6 @@ public class RenkCarkiMod implements ModInitializer {
         MapColor map = state.getMapColor(null, null);
         if (map == color.mapColor) return true;
 
-        // Harita rengi bazı bloklarda aynı olabilir; ayrıca yaygın renkli blokları isimden yakala.
         String id = Registries.BLOCK.getId(state.getBlock()).getPath();
         String key = color.name.toLowerCase(Locale.ROOT);
         return switch (key) {
@@ -152,7 +165,7 @@ public class RenkCarkiMod implements ModInitializer {
             case "yeşil" -> id.contains("green");
             case "camgöbeği" -> id.contains("cyan");
             case "mavi" -> id.contains("blue");
-            case "lacivert" -> id.contains("light_blue") || id.contains("blue"); // lacivert için çarkta ayrı kategori
+            case "lacivert" -> id.contains("light_blue") || id.contains("blue");
             case "mor" -> id.contains("purple");
             case "pembe" -> id.contains("pink");
             case "kahverengi" -> id.contains("brown");
