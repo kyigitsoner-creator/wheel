@@ -25,6 +25,8 @@ public class RenkCarkiMod implements ModInitializer {
 
     private static WheelColor activeTarget = null;
     private static int currentRadiusStep = -30;
+    private static BlockPos freezeCenter = null;
+    private static ServerWorld freezeWorld = null;
 
     private static final WheelColor[] COLORS = {
             new WheelColor("Kırmızı", "§c"),
@@ -48,14 +50,14 @@ public class RenkCarkiMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(CommandManager.literal("renkcarki")
                 .executes(context -> {
-                    startSpin();
+                    startSpin(context.getSource().getServer());
                     context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark başlatıldı!"), false);
                     return 1;
                 }));
 
             dispatcher.register(CommandManager.literal("wheel")
                 .executes(context -> {
-                    startSpin();
+                    startSpin(context.getSource().getServer());
                     context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark başlatıldı!"), false);
                     return 1;
                 }));
@@ -64,17 +66,18 @@ public class RenkCarkiMod implements ModInitializer {
         ServerTickEvents.END_SERVER_TICK.register(RenkCarkiMod::tick);
     }
 
-    private static void startSpin() {
+    private static void startSpin(MinecraftServer server) {
         if (spinTicks <= 0 && activeTarget == null) {
             timer = TICKS_15_MIN;
             activeTarget = COLORS[RANDOM.nextInt(COLORS.length)];
-            spinTicks = 60;
+            spinTicks = 60; // 3 saniye animasyon
         }
     }
 
     private static void tick(MinecraftServer server) {
         if (server.getPlayerManager().getPlayerList().isEmpty()) return;
 
+        // 1. Çark Animasyonu
         if (spinTicks > 0) {
             spinTicks--;
             WheelColor shown = (spinTicks == 0) ? activeTarget : COLORS[RANDOM.nextInt(COLORS.length)];
@@ -87,62 +90,68 @@ public class RenkCarkiMod implements ModInitializer {
                 Text msg = Text.literal("§6§l[ ÇARK ] §r" + activeTarget.code + activeTarget.name
                         + " §7rengi etrafınızdan siliniyor!");
                 server.getPlayerManager().broadcast(msg, false);
+                
+                // Silme başlangıcı için oyuncunun konumunu sabitle
+                ServerPlayerEntity firstPlayer = server.getPlayerManager().getPlayerList().get(0);
+                freezeCenter = firstPlayer.getBlockPos();
+                freezeWorld = firstPlayer.getServerWorld();
                 currentRadiusStep = -30;
             }
             return;
         }
 
-        if (activeTarget != null && currentRadiusStep <= 30) {
-            for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                cleanSliceAroundPlayer(player, activeTarget, currentRadiusStep);
-            }
+        // 2. Kademeli Silme
+        if (activeTarget != null && currentRadiusStep <= 30 && freezeCenter != null && freezeWorld != null) {
+            cleanSliceAtLocation(freezeWorld, freezeCenter, activeTarget, currentRadiusStep);
             currentRadiusStep++;
+            
             if (currentRadiusStep > 30) {
                 activeTarget = null;
+                freezeCenter = null;
+                freezeWorld = null;
             }
             return;
         }
 
+        // 3. Otomatik 15 Dakika Sayacı
         timer--;
         if (timer <= 0) {
-            startSpin();
+            startSpin(server);
         }
     }
 
-    private static void cleanSliceAroundPlayer(ServerPlayerEntity player, WheelColor color, int xOffset) {
-        ServerWorld world = player.getServerWorld();
-        BlockPos center = player.getBlockPos();
-
-        // Dikey alanı -30 ile +30 yaparak genişlettik
+    private static void cleanSliceAtLocation(ServerWorld world, BlockPos center, WheelColor color, int xOffset) {
+        // -30 ile +30 arası yükseklik ve derinlik taranıyor
         for (int y = -30; y <= 30; y++) {
             for (int z = -30; z <= 30; z++) {
                 BlockPos targetPos = center.add(xOffset, y, z);
                 BlockState state = world.getBlockState(targetPos);
+                
                 if (!state.isAir() && isTargetColor(state, color)) {
-                    world.setBlockState(targetPos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
+                    // Block.NOTIFY_ALL kullanarak bloğun yok olduğunu anında oyuncunun ekranına gönderiyoruz!
+                    world.setBlockState(targetPos, Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
                 }
             }
         }
     }
 
     private static boolean isTargetColor(BlockState state, WheelColor color) {
-        // Bloğun tam kayıtsı kimliğini alıyoruz (Örn: minecraft:red_wool -> red_wool)
-        String fullId = Registries.BLOCK.getId(state.getBlock()).toString().toLowerCase(Locale.ROOT);
+        String id = Registries.BLOCK.getId(state.getBlock()).getPath().toLowerCase(Locale.ROOT);
         String key = color.name.toLowerCase(Locale.ROOT);
 
         return switch (key) {
-            case "kırmızı" -> fullId.contains("red");
-            case "turuncu" -> fullId.contains("orange");
-            case "sarı" -> fullId.contains("yellow");
-            case "lime" -> fullId.contains("lime");
-            case "yeşil" -> fullId.contains("green") && !fullId.contains("lime");
-            case "camgöbeği" -> fullId.contains("cyan");
-            case "mavi" -> (fullId.contains("blue") || fullId.contains("lapis")) && !fullId.contains("light_blue");
-            case "lacivert" -> fullId.contains("light_blue");
-            case "mor" -> fullId.contains("purple");
-            case "pembe" -> fullId.contains("pink");
-            case "kahverengi" -> fullId.contains("brown");
-            case "beyaz" -> fullId.contains("white");
+            case "kırmızı" -> id.contains("red");
+            case "turuncu" -> id.contains("orange");
+            case "sarı" -> id.contains("yellow");
+            case "lime" -> id.contains("lime");
+            case "yeşil" -> id.contains("green") && !id.contains("lime");
+            case "camgöbeği" -> id.contains("cyan");
+            case "mavi" -> (id.contains("blue") || id.contains("lapis")) && !id.contains("light_blue");
+            case "lacivert" -> id.contains("light_blue");
+            case "mor" -> id.contains("purple");
+            case "pembe" -> id.contains("pink");
+            case "kahverengi" -> id.contains("brown");
+            case "beyaz" -> id.contains("white");
             default -> false;
         };
     }
