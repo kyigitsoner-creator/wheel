@@ -13,6 +13,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.chunk.WorldChunk;
 
 import java.util.*;
@@ -45,11 +46,11 @@ public class RenkCarkiMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // /renkcarki ve /wheel komutlarını kaydet
+        // /renkcarki ve /wheel komutları
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(CommandManager.literal("renkcarki")
                 .executes(context -> {
-                    timer = 0; // Zamanlayıcıyı sıfırlayarak çarkı hemen tetikler
+                    timer = 0;
                     context.getSource().sendFeedback(() -> Text.literal("§a[Çark] Çark manuel olarak başlatıldı!"), false);
                     return 1;
                 }));
@@ -62,10 +63,8 @@ public class RenkCarkiMod implements ModInitializer {
                 }));
         });
 
-        // Oyuncu oyuna girdikten sonra sayaç çalışır. Dünya kaydedildiğinde tekrar 15 dk'dan başlar.
         ServerTickEvents.END_SERVER_TICK.register(RenkCarkiMod::tick);
 
-        // Yeni yüklenen chunk'larda yasak renk de temizlenir.
         ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
             if (banned != null) {
                 removeColorFromChunk(world, chunk, banned);
@@ -76,7 +75,6 @@ public class RenkCarkiMod implements ModInitializer {
     private static void tick(MinecraftServer server) {
         if (server.getPlayerManager().getPlayerList().isEmpty()) return;
 
-        // Çark animasyonu başladıysa yaklaşık 3 saniye boyunca actionbar'da renkleri döndür.
         if (spinTicks > 0) {
             spinTicks--;
             int index = (spinTicks * 3 + RANDOM.nextInt(3)) % COLORS.length;
@@ -119,7 +117,8 @@ public class RenkCarkiMod implements ModInitializer {
         for (var player : world.getPlayers()) {
             int pcx = player.getChunkPos().x;
             int pcz = player.getChunkPos().z;
-            int radius = Math.max(2, world.getServer().getPlayerManager().getViewDistance());
+            // Kasmaması için mesafe alanını oyuncunun etrafında hafiflettik
+            int radius = Math.min(4, world.getServer().getPlayerManager().getViewDistance());
             for (int cx = pcx - radius; cx <= pcx + radius; cx++) {
                 for (int cz = pcz - radius; cz <= pcz + radius; cz++) {
                     WorldChunk c = world.getChunkManager().getWorldChunk(cx, cz);
@@ -133,18 +132,21 @@ public class RenkCarkiMod implements ModInitializer {
     private static void removeColorFromChunk(ServerWorld world, WorldChunk chunk, WheelColor color) {
         int minX = chunk.getPos().getStartX();
         int minZ = chunk.getPos().getStartZ();
-        int maxX = minX + 15;
-        int maxZ = minZ + 15;
 
-        int bottom = world.getBottomY();
-        int top = world.getTopY();
+        // Sadece oyuncuların bulunduğu seviyeleri (-64 ile 128 arası) tarayarak donmayı engelliyoruz
+        int bottom = Math.max(world.getBottomY(), -64);
+        int top = Math.min(world.getTopY(), 128);
 
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
+        BlockPos.Mutable mutablePos = new BlockPos.Mutable();
+
+        for (int x = minX; x < minX + 16; x++) {
+            for (int z = minZ; z < minZ + 16; z++) {
                 for (int y = bottom; y < top; y++) {
-                    BlockState state = world.getBlockState(new net.minecraft.util.math.BlockPos(x, y, z));
+                    mutablePos.set(x, y, z);
+                    BlockState state = world.getBlockState(mutablePos);
                     if (isTargetColor(state, color)) {
-                        world.setBlockState(new net.minecraft.util.math.BlockPos(x, y, z), Blocks.AIR.getDefaultState(), Block.NOTIFY_ALL);
+                        // NOTIFY_LISTENERS kullanarak oyundaki takılmayı çözüyoruz
+                        world.setBlockState(mutablePos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
                     }
                 }
             }
