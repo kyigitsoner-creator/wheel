@@ -138,7 +138,7 @@ public class RenkCarkiMod implements ModInitializer {
     }
 
     private static boolean isTargetColor(BlockState state, WheelColor color) {
-        MapColor map = state.getMapColor(null);
+        MapColor map = state.getMapColor(null, null);
         if (map == color.mapColor) return true;
 
         // Harita rengi bazı bloklarda aynı olabilir; ayrıca yaygın renkli blokları isimden yakala.
