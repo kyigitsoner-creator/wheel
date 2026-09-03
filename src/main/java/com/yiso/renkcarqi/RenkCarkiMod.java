@@ -7,7 +7,6 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
-import net.minecraft.block.MapColor;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
@@ -25,20 +24,19 @@ public class RenkCarkiMod implements ModInitializer {
     private static int spinTicks = 0;
     private static WheelColor pendingChoice = null;
 
-    // 12 renk: çark sırası
     private static final WheelColor[] COLORS = {
-            new WheelColor("Kırmızı", MapColor.RED, "§c"),
-            new WheelColor("Turuncu", MapColor.ORANGE, "§6"),
-            new WheelColor("Sarı", MapColor.YELLOW, "§e"),
-            new WheelColor("Lime", MapColor.LIME, "§a"),
-            new WheelColor("Yeşil", MapColor.GREEN, "§2"),
-            new WheelColor("Camgöbeği", MapColor.CYAN, "§3"),
-            new WheelColor("Mavi", MapColor.BLUE, "§9"),
-            new WheelColor("Lacivert", MapColor.PURPLE, "§1"),
-            new WheelColor("Mor", MapColor.PURPLE, "§5"),
-            new WheelColor("Pembe", MapColor.PINK, "§d"),
-            new WheelColor("Kahverengi", MapColor.BROWN, "§4"),
-            new WheelColor("Beyaz", MapColor.WHITE, "§f")
+            new WheelColor("Kırmızı", "§c"),
+            new WheelColor("Turuncu", "§6"),
+            new WheelColor("Sarı", "§e"),
+            new WheelColor("Lime", "§a"),
+            new WheelColor("Yeşil", "§2"),
+            new WheelColor("Camgöbeği", "§3"),
+            new WheelColor("Mavi", "§9"),
+            new WheelColor("Lacivert", "§1"),
+            new WheelColor("Mor", "§5"),
+            new WheelColor("Pembe", "§d"),
+            new WheelColor("Kahverengi", "§4"),
+            new WheelColor("Beyaz", "§f")
     };
 
     private static WheelColor banned = null;
@@ -46,7 +44,6 @@ public class RenkCarkiMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // /renkcarki ve /wheel komutları
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(CommandManager.literal("renkcarki")
                 .executes(context -> {
@@ -94,7 +91,7 @@ public class RenkCarkiMod implements ModInitializer {
         if (timer <= 0) {
             timer = TICKS_15_MIN;
             pendingChoice = COLORS[RANDOM.nextInt(COLORS.length)];
-            spinTicks = 60; // 3 saniye
+            spinTicks = 60;
         }
     }
 
@@ -117,8 +114,7 @@ public class RenkCarkiMod implements ModInitializer {
         for (var player : world.getPlayers()) {
             int pcx = player.getChunkPos().x;
             int pcz = player.getChunkPos().z;
-            // Kasmaması için mesafe alanını oyuncunun etrafında hafiflettik
-            int radius = Math.min(4, world.getServer().getPlayerManager().getViewDistance());
+            int radius = 2; // Yükü aşırı azaltmak için yarıçapı 2 chunk yaptık
             for (int cx = pcx - radius; cx <= pcx + radius; cx++) {
                 for (int cz = pcz - radius; cz <= pcz + radius; cz++) {
                     WorldChunk c = world.getChunkManager().getWorldChunk(cx, cz);
@@ -133,9 +129,8 @@ public class RenkCarkiMod implements ModInitializer {
         int minX = chunk.getPos().getStartX();
         int minZ = chunk.getPos().getStartZ();
 
-        // Sadece oyuncuların bulunduğu seviyeleri (-64 ile 128 arası) tarayarak donmayı engelliyoruz
-        int bottom = Math.max(world.getBottomY(), -64);
-        int top = Math.min(world.getTopY(), 128);
+        int bottom = Math.max(world.getBottomY(), -32);
+        int top = Math.min(world.getTopY(), 100);
 
         BlockPos.Mutable mutablePos = new BlockPos.Mutable();
 
@@ -144,8 +139,7 @@ public class RenkCarkiMod implements ModInitializer {
                 for (int y = bottom; y < top; y++) {
                     mutablePos.set(x, y, z);
                     BlockState state = world.getBlockState(mutablePos);
-                    if (isTargetColor(state, color)) {
-                        // NOTIFY_LISTENERS kullanarak oyundaki takılmayı çözüyoruz
+                    if (!state.isAir() && isTargetColor(state, color)) {
                         world.setBlockState(mutablePos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
                     }
                 }
@@ -154,20 +148,18 @@ public class RenkCarkiMod implements ModInitializer {
     }
 
     private static boolean isTargetColor(BlockState state, WheelColor color) {
-        MapColor map = state.getMapColor(null, null);
-        if (map == color.mapColor) return true;
-
-        String id = Registries.BLOCK.getId(state.getBlock()).getPath();
+        String id = Registries.BLOCK.getId(state.getBlock()).getPath().toLowerCase(Locale.ROOT);
         String key = color.name.toLowerCase(Locale.ROOT);
+
         return switch (key) {
-            case "kırmızı" -> id.contains("red_") || id.contains("_red") || id.equals("red_wool") || id.equals("red_concrete");
+            case "kırmızı" -> id.contains("red");
             case "turuncu" -> id.contains("orange");
             case "sarı" -> id.contains("yellow");
             case "lime" -> id.contains("lime");
-            case "yeşil" -> id.contains("green");
+            case "yeşil" -> id.contains("green") && !id.contains("lime");
             case "camgöbeği" -> id.contains("cyan");
-            case "mavi" -> id.contains("blue");
-            case "lacivert" -> id.contains("light_blue") || id.contains("blue");
+            case "mavi" -> id.contains("blue") && !id.contains("light_blue");
+            case "lacivert" -> id.contains("light_blue");
             case "mor" -> id.contains("purple");
             case "pembe" -> id.contains("pink");
             case "kahverengi" -> id.contains("brown");
@@ -176,5 +168,5 @@ public class RenkCarkiMod implements ModInitializer {
         };
     }
 
-    private record WheelColor(String name, MapColor mapColor, String code) {}
+    private record WheelColor(String name, String code) {}
 }
