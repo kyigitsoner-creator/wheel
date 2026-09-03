@@ -113,7 +113,8 @@ public class RenkCarkiMod implements ModInitializer {
         ServerWorld world = player.getServerWorld();
         BlockPos center = player.getBlockPos();
 
-        for (int y = -15; y <= 15; y++) {
+        // Dikey alanı -30 ile +30 yaparak genişlettik
+        for (int y = -30; y <= 30; y++) {
             for (int z = -30; z <= 30; z++) {
                 BlockPos targetPos = center.add(xOffset, y, z);
                 BlockState state = world.getBlockState(targetPos);
@@ -125,22 +126,23 @@ public class RenkCarkiMod implements ModInitializer {
     }
 
     private static boolean isTargetColor(BlockState state, WheelColor color) {
-        String id = Registries.BLOCK.getId(state.getBlock()).getPath().toLowerCase(Locale.ROOT);
+        // Bloğun tam kayıtsı kimliğini alıyoruz (Örn: minecraft:red_wool -> red_wool)
+        String fullId = Registries.BLOCK.getId(state.getBlock()).toString().toLowerCase(Locale.ROOT);
         String key = color.name.toLowerCase(Locale.ROOT);
 
         return switch (key) {
-            case "kırmızı" -> id.contains("red");
-            case "turuncu" -> id.contains("orange");
-            case "sarı" -> id.contains("yellow");
-            case "lime" -> id.contains("lime");
-            case "yeşil" -> id.contains("green") && !id.contains("lime");
-            case "camgöbeği" -> id.contains("cyan");
-            case "mavi" -> id.contains("blue") && !id.contains("light_blue");
-            case "lacivert" -> id.contains("light_blue");
-            case "mor" -> id.contains("purple");
-            case "pembe" -> id.contains("pink");
-            case "kahverengi" -> id.contains("brown");
-            case "beyaz" -> id.contains("white");
+            case "kırmızı" -> fullId.contains("red");
+            case "turuncu" -> fullId.contains("orange");
+            case "sarı" -> fullId.contains("yellow");
+            case "lime" -> fullId.contains("lime");
+            case "yeşil" -> fullId.contains("green") && !fullId.contains("lime");
+            case "camgöbeği" -> fullId.contains("cyan");
+            case "mavi" -> (fullId.contains("blue") || fullId.contains("lapis")) && !fullId.contains("light_blue");
+            case "lacivert" -> fullId.contains("light_blue");
+            case "mor" -> fullId.contains("purple");
+            case "pembe" -> fullId.contains("pink");
+            case "kahverengi" -> fullId.contains("brown");
+            case "beyaz" -> fullId.contains("white");
             default -> false;
         };
     }
