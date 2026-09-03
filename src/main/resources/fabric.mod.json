@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "renk_carki",
+  "version": "${version}",
+  "name": "12 Renk Çarkı",
+  "description": "Her 15 dakikada bir renk seçer ve dünyadaki o renge ait blokları siler.",
+  "authors": ["Yiso"],
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.yiso.renkcarqi.RenkCarkiMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.1",
+    "minecraft": "1.21.1",
+    "fabric-api": "*"
+  }
+}
