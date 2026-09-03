@@ -2,7 +2,6 @@ package com.yiso.renkcarqi;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -14,19 +13,18 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.chunk.WorldChunk;
 
-import java.util.*;
+import java.util.Locale;
+import java.util.Random;
 
 public class RenkCarkiMod implements ModInitializer {
     public static final String MOD_ID = "renk_carki";
     private static final int TICKS_15_MIN = 15 * 60 * 20;
     private static int timer = TICKS_15_MIN;
     private static int spinTicks = 0;
-    
-    private static WheelColor targetChoice = null;
-    private static final Queue<BlockPosTask> removalQueue = new LinkedList<>();
-    private static final int BLOCKS_PER_TICK = 50; // Çökmeyi önlemek için güvenli limit
+
+    private static WheelColor activeTarget = null;
+    private static int currentRadiusStep = -30;
 
     private static final WheelColor[] COLORS = {
             new WheelColor("Kırmızı", "§c"),
@@ -43,10 +41,7 @@ public class RenkCarkiMod implements ModInitializer {
             new WheelColor("Beyaz", "§f")
     };
 
-    private static WheelColor banned = null;
     private static final Random RANDOM = new Random();
-
-    private record BlockPosTask(ServerWorld world, BlockPos pos) {}
 
     @Override
     public void onInitialize() {
@@ -67,110 +62,63 @@ public class RenkCarkiMod implements ModInitializer {
         });
 
         ServerTickEvents.END_SERVER_TICK.register(RenkCarkiMod::tick);
-
-        ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
-            if (banned != null) {
-                scanChunkForRemoval(world, chunk, banned);
-            }
-        });
     }
 
     private static void startSpin() {
-        if (spinTicks <= 0) {
+        if (spinTicks <= 0 && activeTarget == null) {
             timer = TICKS_15_MIN;
-            targetChoice = COLORS[RANDOM.nextInt(COLORS.length)];
-            spinTicks = 60; // 3 saniye
+            activeTarget = COLORS[RANDOM.nextInt(COLORS.length)];
+            spinTicks = 60;
         }
     }
 
     private static void tick(MinecraftServer server) {
         if (server.getPlayerManager().getPlayerList().isEmpty()) return;
 
-        // 1. Kademeli ve Güvenli Blok Silme
-        int processed = 0;
-        while (!removalQueue.isEmpty() && processed < BLOCKS_PER_TICK) {
-            BlockPosTask task = removalQueue.poll();
-            if (task.world() != null && task.pos() != null) {
-                BlockState current = task.world().getBlockState(task.pos());
-                if (!current.isAir()) {
-                    task.world().setBlockState(task.pos(), Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
-                }
-            }
-            processed++;
-        }
-
-        // 2. Çark Dönme Animasyonu
         if (spinTicks > 0) {
             spinTicks--;
-            
-            WheelColor shown = (spinTicks == 0) ? targetChoice : COLORS[RANDOM.nextInt(COLORS.length)];
-            
+            WheelColor shown = (spinTicks == 0) ? activeTarget : COLORS[RANDOM.nextInt(COLORS.length)];
+
             for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
                 player.sendMessage(Text.literal("§6§l[ ÇARK DÖNÜYOR ] §r" + shown.code + shown.name), true);
             }
 
             if (spinTicks == 0) {
-                applyChoice(server, targetChoice);
+                Text msg = Text.literal("§6§l[ ÇARK ] §r" + activeTarget.code + activeTarget.name
+                        + " §7rengi etrafınızdan siliniyor!");
+                server.getPlayerManager().broadcast(msg, false);
+                currentRadiusStep = -30;
             }
             return;
         }
 
-        // 3. Otomatik Zamanlayıcı
+        if (activeTarget != null && currentRadiusStep <= 30) {
+            for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+                cleanSliceAroundPlayer(player, activeTarget, currentRadiusStep);
+            }
+            currentRadiusStep++;
+            if (currentRadiusStep > 30) {
+                activeTarget = null;
+            }
+            return;
+        }
+
         timer--;
         if (timer <= 0) {
             startSpin();
         }
     }
 
-    private static void applyChoice(MinecraftServer server, WheelColor chosen) {
-        banned = chosen;
+    private static void cleanSliceAroundPlayer(ServerPlayerEntity player, WheelColor color, int xOffset) {
+        ServerWorld world = player.getServerWorld();
+        BlockPos center = player.getBlockPos();
 
-        for (ServerWorld world : server.getWorlds()) {
-            for (WorldChunk chunk : getLoadedChunks(world)) {
-                scanChunkForRemoval(world, chunk, chosen);
-            }
-        }
-
-        Text msg = Text.literal("§6§l[ ÇARK ] §r" + chosen.code + chosen.name
-                + " §7rengi dünyadan siliniyor!");
-        server.getPlayerManager().broadcast(msg, false);
-    }
-
-    private static List<WorldChunk> getLoadedChunks(ServerWorld world) {
-        List<WorldChunk> result = new ArrayList<>();
-        for (ServerPlayerEntity player : world.getPlayers()) {
-            int pcx = player.getChunkPos().x;
-            int pcz = player.getChunkPos().z;
-            int radius = 2; // Sadece oyuncunun yakını
-            for (int cx = pcx - radius; cx <= pcx + radius; cx++) {
-                for (int cz = pcz - radius; cz <= pcz + radius; cz++) {
-                    WorldChunk c = world.getChunkManager().getWorldChunk(cx, cz);
-                    if (c != null) result.add(c);
-                }
-            }
-        }
-        return result;
-    }
-
-    private static void scanChunkForRemoval(ServerWorld world, WorldChunk chunk, WheelColor color) {
-        int minX = chunk.getPos().getStartX();
-        int minZ = chunk.getPos().getStartZ();
-
-        // Oyuncuların konumunu alıp taramayı sadece oyuncunun etrafındaki Y yüksekliğine sınırlıyoruz
-        for (ServerPlayerEntity player : world.getPlayers()) {
-            int playerY = player.getBlockPos().getY();
-            int minY = Math.max(world.getBottomY(), playerY - 15);
-            int maxY = Math.min(world.getTopY(), playerY + 15);
-
-            for (int x = minX; x < minX + 16; x++) {
-                for (int z = minZ; z < minZ + 16; z++) {
-                    for (int y = minY; y <= maxY; y++) {
-                        BlockPos pos = new BlockPos(x, y, z);
-                        BlockState state = world.getBlockState(pos);
-                        if (!state.isAir() && isTargetColor(state, color)) {
-                            removalQueue.add(new BlockPosTask(world, pos));
-                        }
-                    }
+        for (int y = -15; y <= 15; y++) {
+            for (int z = -30; z <= 30; z++) {
+                BlockPos targetPos = center.add(xOffset, y, z);
+                BlockState state = world.getBlockState(targetPos);
+                if (!state.isAir() && isTargetColor(state, color)) {
+                    world.setBlockState(targetPos, Blocks.AIR.getDefaultState(), Block.NOTIFY_LISTENERS);
                 }
             }
         }
